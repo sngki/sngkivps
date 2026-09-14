@@ -66,17 +66,19 @@ jobs:
 
         run: |
 
-          Write-Host "Configuring NvdAdmin..."
+          Write-Host "Configuring RDP user..."
 
           if ([string]::IsNullOrWhiteSpace($Env:RDP_PASSWORD)) {
               throw "RDP_PASSWORD secret is missing."
           }
 
-          $Password = ConvertTo-SecureString `
+          # Convert password to SecureString
+          $SecurePassword = ConvertTo-SecureString `
             $Env:RDP_PASSWORD `
             -AsPlainText `
             -Force
 
+          # Check whether user already exists
           $User = Get-LocalUser `
             -Name "NvdAdmin" `
             -ErrorAction SilentlyContinue
@@ -87,26 +89,46 @@ jobs:
 
               New-LocalUser `
                 -Name "NvdAdmin" `
-                -Password $Password `
+                -Password $SecurePassword `
                 -PasswordNeverExpires `
-                -AccountNeverExpires
+                -UserMayNotChangePassword `
+                -Description "RDP Administrator"
 
           }
           else {
 
-              Write-Host "NvdAdmin already exists. Resetting password..."
+              Write-Host "NvdAdmin already exists."
+
+              Write-Host "Resetting password..."
 
               Set-LocalUser `
                 -Name "NvdAdmin" `
-                -Password $Password
+                -Password $SecurePassword
           }
 
+          # Make sure the account is enabled
+          Enable-LocalUser `
+            -Name "NvdAdmin"
+
+          # Add to Administrators group
           Add-LocalGroupMember `
             -Group "Administrators" `
             -Member "NvdAdmin" `
             -ErrorAction SilentlyContinue
 
-          Write-Host "RDP account ready."
+          # Verify account
+          Write-Host ""
+          Write-Host "=============================================="
+          Write-Host "             RDP USER READY"
+          Write-Host "=============================================="
+
+          Get-LocalUser `
+            -Name "NvdAdmin" |
+            Select-Object Name, Enabled, PasswordNeverExpires
+
+          Write-Host ""
+          Write-Host "RDP username: NvdAdmin"
+          Write-Host "Password: configured from GitHub Secret"
 
 
       # ============================================================
