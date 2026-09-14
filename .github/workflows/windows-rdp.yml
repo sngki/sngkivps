@@ -1,4 +1,3 @@
-```yaml
 name: Windows Cloud VPN
 
 on:
@@ -317,4 +316,3 @@ jobs:
                 "[$i/360] Server running - Tailscale IP: $ts_ip"
 
           }
-```
