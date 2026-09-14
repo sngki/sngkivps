@@ -1,3 +1,4 @@
+```yaml
 name: Windows Cloud VPN
 
 on:
@@ -10,15 +11,47 @@ jobs:
 
     steps:
 
-      - name: 1. Enable Remote Desktop & Firewall
+      # ============================================================
+      # 1. Windows Network Optimization
+      # ============================================================
+      - name: 1. Optimize Windows Network
         shell: powershell
         run: |
+
+          Write-Host "=== Windows TCP Configuration ===" -ForegroundColor Cyan
+
+          # TCP Auto-Tuning
+          netsh int tcp set global autotuninglevel=normal
+
+          # Receive Side Scaling
+          netsh int tcp set global rss=enabled
+
+          # Disable ECN because it can cause compatibility issues
+          netsh int tcp set global ecncapability=disabled
+
+          # Disable TCP timestamps
+          netsh int tcp set global timestamps=disabled
+
+          Write-Host ""
+          Write-Host "=== Current TCP Configuration ===" -ForegroundColor Green
+
+          netsh int tcp show global
+
+
+      # ============================================================
+      # 2. Enable RDP
+      # ============================================================
+      - name: 2. Enable Remote Desktop & Firewall
+        shell: powershell
+        run: |
+
           Set-ItemProperty `
             -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
             -Name "fDenyTSConnections" `
             -Value 0
 
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Enable-NetFirewallRule `
+            -DisplayGroup "Remote Desktop"
 
           Set-ItemProperty `
             -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
@@ -26,10 +59,17 @@ jobs:
             -Value 0
 
 
-      - name: 2. Create Admin Account
+      # ============================================================
+      # 3. Create Admin Account
+      # ============================================================
+      - name: 3. Create Admin Account
         shell: powershell
         run: |
-          $Password = ConvertTo-SecureString "${{ secrets.RDP_PASSWORD }}" -AsPlainText -Force
+
+          $Password = ConvertTo-SecureString `
+            "${{ secrets.RDP_PASSWORD }}" `
+            -AsPlainText `
+            -Force
 
           New-LocalUser `
             -Name "NvdAdmin" `
@@ -43,9 +83,15 @@ jobs:
             -ErrorAction SilentlyContinue
 
 
-      - name: 3. Install Tailscale
+      # ============================================================
+      # 4. Install Tailscale
+      # ============================================================
+      - name: 4. Install Tailscale
         shell: powershell
         run: |
+
+          Write-Host "Downloading Tailscale..." -ForegroundColor Cyan
+
           Invoke-WebRequest `
             "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" `
             -OutFile "C:\tailscale.msi"
@@ -57,50 +103,218 @@ jobs:
 
           Start-Sleep -Seconds 10
 
+          & "C:\Program Files\Tailscale\tailscale.exe" version
 
-      - name: 4. Connect Tailscale as Exit Node
+
+      # ============================================================
+      # 5. Connect Tailscale
+      # ============================================================
+      - name: 5. Connect Tailscale Exit Node
         shell: powershell
         env:
           TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
 
         run: |
 
-          & "C:\Program Files\Tailscale\tailscale.exe" up `
+          $TS = "C:\Program Files\Tailscale\tailscale.exe"
+
+          Write-Host "Connecting to Tailscale..." -ForegroundColor Cyan
+
+          & $TS up `
             --authkey="$Env:TAILSCALE_AUTHKEY" `
             --hostname="github-vpn-server" `
-            --advertise-exit-node
+            --advertise-exit-node `
+            --accept-dns=false
 
-          Start-Sleep -Seconds 10
+          Start-Sleep -Seconds 15
+
+          Write-Host ""
+          Write-Host "Tailscale connection established." -ForegroundColor Green
 
 
-      - name: 5. Show Tailscale Information
+      # ============================================================
+      # 6. Verify Tailscale Status
+      # ============================================================
+      - name: 6. Verify Tailscale
         shell: powershell
         run: |
 
-          $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          $TS = "C:\Program Files\Tailscale\tailscale.exe"
 
           Write-Host ""
           Write-Host "==============================================" -ForegroundColor Green
-          Write-Host "       TAILSCALE VPN SERVER READY" -ForegroundColor Cyan
+          Write-Host "           TAILSCALE STATUS" -ForegroundColor Cyan
           Write-Host "==============================================" -ForegroundColor Green
+
+          & $TS status
+
+          Write-Host ""
+          Write-Host "==============================================" -ForegroundColor Green
+          Write-Host "             TAILSCALE IP" -ForegroundColor Cyan
+          Write-Host "==============================================" -ForegroundColor Green
+
+          & $TS ip -4
+
+
+      # ============================================================
+      # 7. Network Diagnostics
+      # ============================================================
+      - name: 7. Network Diagnostics
+        shell: powershell
+        run: |
+
+          $TS = "C:\Program Files\Tailscale\tailscale.exe"
+
+          Write-Host ""
+          Write-Host "==============================================" -ForegroundColor Yellow
+          Write-Host "              TAILSCALE NETCHECK" -ForegroundColor Cyan
+          Write-Host "==============================================" -ForegroundColor Yellow
+
+          & $TS netcheck
+
+          Write-Host ""
+          Write-Host "==============================================" -ForegroundColor Yellow
+          Write-Host "                 IP CONFIG" -ForegroundColor Cyan
+          Write-Host "==============================================" -ForegroundColor Yellow
+
+          ipconfig /all
+
+
+      # ============================================================
+      # 8. Internet Speed Test
+      # ============================================================
+      - name: 8. Internet Speed Test
+        shell: powershell
+        run: |
+
+          Write-Host ""
+          Write-Host "==============================================" -ForegroundColor Green
+          Write-Host "             INTERNET TEST" -ForegroundColor Cyan
+          Write-Host "==============================================" -ForegroundColor Green
+
+          Write-Host ""
+          Write-Host "Public IP:" -ForegroundColor Yellow
+
+          try {
+              (Invoke-RestMethod `
+                -Uri "https://api.ipify.org?format=text" `
+                -TimeoutSec 10)
+          }
+          catch {
+              Write-Host "Unable to detect public IP"
+          }
+
+          Write-Host ""
+          Write-Host "Testing download connection..."
+
+          $testUrl = "https://speed.hetzner.de/100MB.bin"
+
+          try {
+
+              $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+              Invoke-WebRequest `
+                -Uri $testUrl `
+                -OutFile "$env:TEMP\speedtest.bin" `
+                -UseBasicParsing
+
+              $sw.Stop()
+
+              $sizeMB = `
+                (Get-Item "$env:TEMP\speedtest.bin").Length / 1MB
+
+              $seconds = $sw.Elapsed.TotalSeconds
+
+              if ($seconds -gt 0) {
+
+                  $mbps = `
+                    ($sizeMB * 8) / $seconds
+
+                  Write-Host ""
+                  Write-Host "Download: $([math]::Round($mbps,2)) Mbps" `
+                    -ForegroundColor Green
+              }
+
+              Remove-Item `
+                "$env:TEMP\speedtest.bin" `
+                -Force `
+                -ErrorAction SilentlyContinue
+
+          }
+          catch {
+
+              Write-Host "Speed test failed." `
+                -ForegroundColor Yellow
+          }
+
+
+      # ============================================================
+      # 9. Firewall / UDP diagnostics
+      # ============================================================
+      - name: 9. UDP Diagnostics
+        shell: powershell
+        run: |
+
+          Write-Host ""
+          Write-Host "==============================================" -ForegroundColor Yellow
+          Write-Host "              UDP DIAGNOSTICS" -ForegroundColor Cyan
+          Write-Host "==============================================" -ForegroundColor Yellow
+
+          Write-Host ""
+          Write-Host "Tailscale uses UDP for direct connections."
+
+          Get-NetFirewallProfile |
+            Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction |
+            Format-Table -AutoSize
+
+
+      # ============================================================
+      # 10. Final Information
+      # ============================================================
+      - name: 10. Show VPN Information
+        shell: powershell
+        run: |
+
+          $TS = "C:\Program Files\Tailscale\tailscale.exe"
+
+          $ts_ip = & $TS ip -4
+
+          Write-Host ""
+          Write-Host "==================================================" -ForegroundColor Green
+          Write-Host "          TAILSCALE VPN SERVER READY" -ForegroundColor Cyan
+          Write-Host "==================================================" -ForegroundColor Green
+
           Write-Host ""
           Write-Host "Tailscale IP : $ts_ip" -ForegroundColor Yellow
           Write-Host "Hostname     : github-vpn-server" -ForegroundColor Yellow
+          Write-Host "Exit Node    : ENABLED" -ForegroundColor Green
+
           Write-Host ""
-          Write-Host "Exit Node advertised: YES" -ForegroundColor Green
+          Write-Host "IMPORTANT:"
+          Write-Host "Check 'tailscale netcheck' above."
+          Write-Host "Check whether your client connects DIRECT or through DERP."
+
           Write-Host ""
-          Write-Host "==============================================" -ForegroundColor Green
+          Write-Host "==================================================" -ForegroundColor Green
 
 
-      - name: 6. Keep Server Alive
+      # ============================================================
+      # 11. Keep Runner Alive
+      # ============================================================
+      - name: 11. Keep Server Alive
         shell: powershell
         run: |
 
+          $TS = "C:\Program Files\Tailscale\tailscale.exe"
+
           for ($i = 1; $i -le 360; $i++) {
 
-            Start-Sleep -Seconds 60
+              Start-Sleep -Seconds 60
 
-            $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+              $ts_ip = & $TS ip -4
 
-            Write-Host "[$i/360] Server running - Tailscale IP: $ts_ip"
+              Write-Host `
+                "[$i/360] Server running - Tailscale IP: $ts_ip"
+
           }
+```
