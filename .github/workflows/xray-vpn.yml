@@ -37,8 +37,7 @@ jobs:
               }
             }],
             "outbounds": [{"protocol": "freedom"}]
-          }
-                    "@
+          }"@
 
           Set-Content -Path "xray\config.json" -Value $config
 
