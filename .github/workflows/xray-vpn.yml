@@ -64,8 +64,14 @@ jobs:
               if (\(env:TELEGRAM_TOKEN -and\)env:TELEGRAM_CHAT_ID) {
                   \(msg = "🚀 سرور VPN جدید آماده شد!`n`n📡 Address:\)cfUrl`n🔑 Port: 443`n🆔 UUID: d342d11e-d224-445c-b126-23f4fc9128de"
                   \(apiUrl = "https://api.telegram.org/bot\)($env:TELEGRAM_TOKEN)/sendMessage"
-                  \(body = @{ chat_id =\)env:TELEGRAM_CHAT_ID; text = $msg }
-                  Invoke-RestMethod -Uri \(apiUrl -Method Post -Body\)body
+                  
+                  $body = @{
+                      chat_id = $env:TELEGRAM_CHAT_ID
+                      text = $msg
+                  }
+                  \(jsonBody =\)body | ConvertTo-Json
+                  
+                  Invoke-RestMethod -Uri \(apiUrl -Method Post -ContentType "application/json" -Body\)jsonBody
                   Write-Host "Notification sent to Telegram."
               } else {
                   Write-Host "Telegram Secrets are missing!"
