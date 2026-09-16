@@ -8,238 +8,81 @@ jobs:
     runs-on: windows-latest
 
     steps:
-
-      - name: Download Xray
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          Write-Host "Downloading Xray..."
-
-          Invoke-WebRequest `
-            -Uri "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip" `
-            -OutFile "xray.zip"
-
-          Expand-Archive `
-            -Path "xray.zip" `
-            -DestinationPath "xray" `
-            -Force
-
-          Write-Host "Xray downloaded successfully."
-
-      - name: Configure and Start Xray
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          Write-Host "Creating Xray configuration..."
-
-          $client = @{
-            id = "d342d11e-d224-445c-b126-23f4fc9128de"
-          }
-
-          $inbound = @{
-            port = 8080
-            listen = "127.0.0.1"
-            protocol = "vless"
-            settings = @{
-              clients = @($client)
-              decryption = "none"
-            }
-            streamSettings = @{
-              network = "ws"
-              security = "none"
-              wsSettings = @{
-                path = "/vpn"
-              }
-            }
-          }
-
-          $outbound = @{
-            protocol = "freedom"
-          }
-
-          $configObject = @{
-            log = @{
-              loglevel = "warning"
-            }
-            inbounds = @($inbound)
-            outbounds = @($outbound)
-          }
-
-          $config = $configObject | ConvertTo-Json -Depth 10
-
-          Set-Content `
-            -Path "xray\config.json" `
-            -Value $config `
-            -Encoding UTF8
-
-          Write-Host "Testing Xray configuration..."
-
-          & ".\xray\xray.exe" run -test -config ".\xray\config.json"
-
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Xray configuration test failed."
-            exit 1
-          }
-
-          Write-Host "Xray configuration is valid."
-
-          Write-Host "Starting Xray..."
-
-          Start-Process `
-            -FilePath ".\xray\xray.exe" `
-            -ArgumentList "run -config .\xray\config.json" `
-            -NoNewWindow
-
-          Start-Sleep -Seconds 3
-
-          Write-Host "Checking Xray process..."
-
-          $xrayProcess = Get-Process xray -ErrorAction SilentlyContinue
-
-          if (-not $xrayProcess) {
-            Write-Error "Xray process is not running."
-            exit 1
-          }
-
-          Write-Host "Xray is running successfully."
-
-      - name: Start Cloudflare Tunnel and Notify
-        shell: pwsh
+      - name: Setup VPN and Keep Alive
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
         run: |
-          $ErrorActionPreference = "Stop"
+          # 1. Download Xray
+          Invoke-WebRequest -Uri "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip" -OutFile "xray.zip"
+          Expand-Archive -Path "xray.zip" -DestinationPath "xray"
 
-          Write-Host "Downloading cloudflared..."
-
-          Invoke-WebRequest `
-            -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" `
-            -OutFile "cloudflared.exe"
-
-          Write-Host "Starting Cloudflare Quick Tunnel..."
-
-          Start-Process `
-            -FilePath ".\cloudflared.exe" `
-            -ArgumentList "tunnel --url http://127.0.0.1:8080 --no-tls-verify" `
-            -RedirectStandardError "cf.log" `
-            -NoNewWindow
-
-          Write-Host "Waiting for Cloudflare URL..."
-
-          $cfUrl = $null
-
-          for ($i = 1; $i -le 30; $i++) {
-
-            Start-Sleep -Seconds 2
-
-            if (Test-Path "cf.log") {
-
-              $logContent = Get-Content "cf.log" -Raw
-
-              Write-Host "Cloudflare log:"
-              Write-Host $logContent
-
-              $regex = 'https://[a-zA-Z0-9-]+\.trycloudflare\.com'
-
-              $match = [regex]::Match(
-                $logContent,
-                $regex
-              )
-
-              if ($match.Success) {
-                $cfUrl = $match.Value
-                break
+          # 2. Config Xray
+          $config = @"
+          {
+            "log": { "loglevel": "warning" },
+            "inbounds": [{
+              "port": 8080,
+              "listen": "127.0.0.1",
+              "protocol": "vless",
+              "settings": {
+                "clients": [{"id": "d342d11e-d224-445c-b126-23f4fc9128de"}],
+                "decryption": "none"
+              },
+              "streamSettings": {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {"path": "/vpn"}
               }
-            }
+            }],
+            "outbounds": [{"protocol": "freedom"}]
+          }
+                    "@
+
+          Set-Content -Path "xray\config.json" -Value $config
+
+          # 3. Start Xray
+          Start-Process -FilePath ".\xray\xray.exe" -ArgumentList "run -config .\xray\config.json" -NoNewWindow
+          Start-Sleep -Seconds 3
+
+          # 4. Start Cloudflare Tunnel
+          Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "cloudflared.exe"
+          Start-Process -FilePath ".\cloudflared.exe" -ArgumentList "tunnel --url http://127.0.0.1:8080 --no-tls-verify" -RedirectStandardError "cf.log" -NoNewWindow
+
+          Write-Host "Waiting for Cloudflare to generate URL..."
+          Start-Sleep -Seconds 15
+
+          # 5. Extract URL and Send Telegram Notification
+          $logContent = Get-Content cf.log | Select-String "trycloudflare.com"
+          $regex = '([a-zA-Z0-9-]+\.trycloudflare\.com)'
+          $match = [regex]::Match($logContent, $regex)
+
+          if ($match.Success) {
+              $cfUrl = $match.Groups[1].Value
+              Write-Host "Extracted URL: $cfUrl"
+
+              if ($env:TELEGRAM_TOKEN -and $env:TELEGRAM_CHAT_ID) {
+                  $msg = "🚀 سرور VPN جدید آماده شد!`n`n📡 Address: $cfUrl`n🔑 Port: 443`n🆔 UUID: d342d11e-d224-445c-b126-23f4fc9128de"
+                  $apiUrl = "https://api.telegram.org/bot$($env:TELEGRAM_TOKEN)/sendMessage"
+                  $body = @{
+                      chat_id = $env:TELEGRAM_CHAT_ID
+                      text    = $msg
+                  }
+                  $jsonBody = $body | ConvertTo-Json
+
+                  try {
+                      Invoke-RestMethod -Uri $apiUrl -Method Post -ContentType "application/json" -Body $jsonBody -ErrorAction Stop
+                      Write-Host "✅ Notification sent to Telegram successfully!"
+                  } catch {
+                      Write-Host "❌ Failed to send Telegram message: $_"
+                  }
+              }
+          } else {
+              Write-Host "❌ Failed to extract URL."
+              Get-Content cf.log
           }
 
-          if (-not $cfUrl) {
-
-            Write-Error "Cloudflare Quick Tunnel URL was not found."
-
-            if (Test-Path "cf.log") {
-              Write-Host "Final Cloudflare log:"
-              Get-Content "cf.log"
-            }
-
-            exit 1
-          }
-
-          Write-Host "========================================"
-          Write-Host "Cloudflare URL:"
-          Write-Host $cfUrl
-          Write-Host "========================================"
-
-          $hostname = $cfUrl -replace '^https://', ''
-
-          $uuid = "d342d11e-d224-445c-b126-23f4fc9128de"
-
-          $encodedPath = "%2Fvpn"
-
-          $vlessUri = "vless://$uuid@$hostname`:443?encryption=none&security=none&type=ws&host=$hostname&path=$encodedPath#Xray-Cloudflare"
-
-          Write-Host "Generated VLESS URI:"
-          Write-Host $vlessUri
-
-          if ($env:TELEGRAM_TOKEN -and $env:TELEGRAM_CHAT_ID) {
-
-            $message = @(
-              "🚀 Xray VPN Server Ready"
-              ""
-              "🌐 Address:"
-              $hostname
-              ""
-              "🔌 Port:"
-              "443"
-              ""
-              "🆔 UUID:"
-              $uuid
-              ""
-              "📡 Protocol:"
-              "VLESS + WebSocket"
-              ""
-              "📂 WebSocket Path:"
-              "/vpn"
-              ""
-              "🔗 VLESS URI:"
-              $vlessUri
-            ) -join "`n"
-
-            $apiUrl = "https://api.telegram.org/bot$($env:TELEGRAM_TOKEN)/sendMessage"
-
-            $body = @{
-              chat_id = $env:TELEGRAM_CHAT_ID
-              text = $message
-            }
-
-            $jsonBody = $body | ConvertTo-Json
-
-            Invoke-RestMethod `
-              -Uri $apiUrl `
-              -Method Post `
-              -ContentType "application/json" `
-              -Body $jsonBody
-
-            Write-Host "Telegram notification sent successfully."
-
-          }
-          else {
-
-            Write-Warning "TELEGRAM_TOKEN or TELEGRAM_CHAT_ID is missing."
-
-            Write-Host "The VLESS URI is:"
-            Write-Host $vlessUri
-          }
-
-      - name: Keep Runner Alive
-        shell: pwsh
-        run: |
-          Write-Host "========================================"
-          Write-Host "Xray + Cloudflare Tunnel is running."
-          Write-Host "Runner will stay alive for up to 6 hours."
-          Write-Host "========================================"
-
+          # 6. KEEP RUNNER ALIVE (Crucial: Must be in the same step)
+          Write-Host "Keeping Runner Alive for 6 hours..."
           Start-Sleep -Seconds 21600
