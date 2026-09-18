@@ -142,132 +142,116 @@ jobs:
 
               if ($env:TELEGRAM_TOKEN -and $env:TELEGRAM_CHAT_ID) {
 
-                  # ----------------------------------------------------
-                  # Create VLESS link
-                  # ----------------------------------------------------
-
+                  # ============================================================
+                  # 6. Create VLESS Link
+                  # ============================================================
+                  
                   $vlessLink = "vless://d342d11e-d224-445c-b126-23f4fc9128de@$cfHost`:443?encryption=none&security=tls&sni=$cfHost&type=ws&path=%2Fvpn#Xray-Cloudflare"
-
+                  
                   Write-Host "Generated VLESS Link:"
                   Write-Host $vlessLink
-
-                  # ----------------------------------------------------
-                  # Escape VLESS link for Telegram HTML
-                  # ----------------------------------------------------
-
+                  
+                  
+                  # ============================================================
+                  # 7. Telegram Message
+                  # ============================================================
+                  
                   $vlessLinkHtml = [System.Net.WebUtility]::HtmlEncode($vlessLink)
-
-                  # ----------------------------------------------------
-                  # Telegram message
-                  # ----------------------------------------------------
-
+                  
                   $msg = "🚀 <b>سرور VPN جدید آماده شد!</b>`n`n🔗 <code>$vlessLinkHtml</code>"
-
-                  # ----------------------------------------------------
-                  # Create Inline Keyboard JSON
-                  #
-                  # Telegram expects:
-                  #
-                  # {
-                  #   "inline_keyboard": [
-                  #     [
-                  #       {
-                  #         "text": "📋 کپی لینک",
-                  #         "copy_text": {
-                  #           "text": "vless://..."
-                  #         }
-                  #       }
-                  #     ]
-                  #   ]
-                  # }
-                  # ----------------------------------------------------
-
-                  $replyMarkupObject = [PSCustomObject]@{
-                      inline_keyboard = @(
-                          @(
-                              [PSCustomObject]@{
-                                  text = "📋 کپی لینک"
-                                  copy_text = [PSCustomObject]@{
-                                      text = $vlessLink
-                                  }
-                              }
-                          )
-                      )
+                  
+                  
+                  # ============================================================
+                  # 8. Create Copy Button
+                  # ============================================================
+                  
+                  $copyButton = [ordered]@{
+                      text = "📋 کپی لینک"
+                      copy_text = [ordered]@{
+                          text = $vlessLink
+                      }
                   }
-
-                  $replyMarkupJson = $replyMarkupObject | ConvertTo-Json -Depth 10 -Compress
-
+                  
+                  # Convert ONLY the button to JSON
+                  $copyButtonJson = $copyButton | ConvertTo-Json -Compress -Depth 10
+                  
+                  # IMPORTANT:
+                  # Telegram requires:
+                  # inline_keyboard -> array of rows -> array of buttons
+                  #
+                  # Therefore we explicitly create:
+                  # [[ BUTTON ]]
+                  #
+                  $replyMarkupJson = '{"inline_keyboard":[[' + $copyButtonJson + ']]}'
+                  
                   Write-Host "Telegram Reply Markup:"
                   Write-Host $replyMarkupJson
-
-                  # ----------------------------------------------------
-                  # Telegram API
-                  # ----------------------------------------------------
-
+                  
+                  
+                  # ============================================================
+                  # 9. Telegram API
+                  # ============================================================
+                  
                   $apiUrl = "https://api.telegram.org/bot$($env:TELEGRAM_TOKEN)/sendMessage"
-
-                  # ----------------------------------------------------
-                  # IMPORTANT:
-                  # reply_markup is sent as JSON-serialized parameter
-                  # ----------------------------------------------------
-
+                  
                   $body = @{
                       chat_id      = $env:TELEGRAM_CHAT_ID
                       text         = $msg
                       parse_mode   = "HTML"
                       reply_markup = $replyMarkupJson
                   }
-
+                  
+                  
+                  # ============================================================
+                  # 10. Send Telegram Message
+                  # ============================================================
+                  
                   Write-Host "Sending Telegram notification..."
-
+                  
                   try {
-
-                      # Sending as form data prevents PowerShell from
-                      # incorrectly nesting/collapsing inline_keyboard.
+                  
                       $response = Invoke-RestMethod `
-                        -Uri $apiUrl `
-                        -Method Post `
-                        -Body $body `
-                        -ErrorAction Stop
-
+                          -Uri $apiUrl `
+                          -Method Post `
+                          -Body $body `
+                          -ErrorAction Stop
+                  
                       Write-Host "=============================================="
                       Write-Host "✅ Telegram notification sent successfully!"
                       Write-Host "=============================================="
-
-                      Write-Host "Telegram response:"
+                  
                       $response | ConvertTo-Json -Depth 10
-
                   }
                   catch {
-
+                  
                       Write-Host "=============================================="
                       Write-Host "❌ Failed to send Telegram message"
                       Write-Host "=============================================="
-
+                  
                       Write-Host $_
-
+                  
                       if ($_.ErrorDetails.Message) {
                           Write-Host $_.ErrorDetails.Message
                       }
-
+                  
                       Write-Host "Reply Markup JSON:"
                       Write-Host $replyMarkupJson
                   }
-              }
-              else {
-
-                  Write-Host "❌ TELEGRAM_TOKEN or TELEGRAM_CHAT_ID is missing."
-              }
-          }
-          else {
-
-              Write-Host "=============================================="
-              Write-Host "❌ Failed to extract Cloudflare URL."
-              Write-Host "=============================================="
-
-              Write-Host "Cloudflare log:"
-              Get-Content "cf.log"
-          }
+                                }
+                                else {
+                  
+                                    Write-Host "❌ TELEGRAM_TOKEN or TELEGRAM_CHAT_ID is missing."
+                                }
+                            }
+                            else {
+                  
+                                Write-Host "=============================================="
+                                Write-Host "❌ Failed to extract Cloudflare URL."
+                                Write-Host "=============================================="
+                  
+                                Write-Host "Cloudflare log:"
+                                Get-Content "cf.log"
+                            }
 
           # ============================================================
           # 7. Keep GitHub Runner alive for 6 hours
