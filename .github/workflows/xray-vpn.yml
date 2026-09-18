@@ -18,39 +18,65 @@ jobs:
           Set-PSDebug -Trace 1
 
           # 1. Download Xray
-          Invoke-WebRequest -Uri "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip" -OutFile "xray.zip"
-          Expand-Archive -Path "xray.zip" -DestinationPath "xray"
+          Invoke-WebRequest `
+            -Uri "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip" `
+            -OutFile "xray.zip"
+
+          Expand-Archive `
+            -Path "xray.zip" `
+            -DestinationPath "xray"
 
           # 2. Config Xray
           $config = @"
           {
-            "log": { "loglevel": "warning" },
+            "log": {
+              "loglevel": "warning"
+            },
             "inbounds": [{
               "port": 8080,
               "listen": "127.0.0.1",
               "protocol": "vless",
               "settings": {
-                "clients": [{"id": "d342d11e-d224-445c-b126-23f4fc9128de"}],
+                "clients": [
+                  {
+                    "id": "d342d11e-d224-445c-b126-23f4fc9128de"
+                  }
+                ],
                 "decryption": "none"
               },
               "streamSettings": {
                 "network": "ws",
                 "security": "none",
-                "wsSettings": {"path": "/vpn"}
+                "wsSettings": {
+                  "path": "/vpn"
+                }
               }
             }],
-            "outbounds": [{"protocol": "freedom"}]
+            "outbounds": [
+              {
+                "protocol": "freedom"
+              }
+            ]
           }
           "@
 
-          Set-Content -Path "xray\config.json" -Value $config
+          Set-Content `
+            -Path "xray\config.json" `
+            -Value $config `
+            -Encoding UTF8
 
           # 3. Start Xray
-          Start-Process -FilePath ".\xray\xray.exe" -ArgumentList "run -config .\xray\config.json" -NoNewWindow
+          Start-Process `
+            -FilePath ".\xray\xray.exe" `
+            -ArgumentList "run -config .\xray\config.json" `
+            -NoNewWindow
+
           Start-Sleep -Seconds 3
 
           # 4. Start Cloudflare Tunnel
-          Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "cloudflared.exe"
+          Invoke-WebRequest `
+            -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" `
+            -OutFile "cloudflared.exe"
 
           Start-Process `
             -FilePath ".\cloudflared.exe" `
@@ -61,27 +87,34 @@ jobs:
           Write-Host "Waiting for Cloudflare to generate URL..."
           Start-Sleep -Seconds 15
 
-          # 5. Extract URL and Send Telegram Notification
-          $logContent = Get-Content cf.log | Select-String "trycloudflare.com"
-          $regex = '([a-zA-Z0-9-]+\.trycloudflare\.com)'
+          # 5. Extract Cloudflare URL
+          $logContent = Get-Content "cf.log" -Raw
+
+          $regex = 'https?://([a-zA-Z0-9-]+\.trycloudflare\.com)'
           $match = [regex]::Match($logContent, $regex)
 
           if ($match.Success) {
-              $cfUrl = $match.Groups[1].Value
-              Write-Host "Extracted URL: $cfUrl"
+
+              # Only hostname, without http:// or https://
+              $cfHost = $match.Groups[1].Value
+
+              Write-Host "Extracted Cloudflare Host: $cfHost"
 
               if ($env:TELEGRAM_TOKEN -and $env:TELEGRAM_CHAT_ID) {
 
-                  # Remove both http:// and https:// if they exist
-                  $host = $cfUrl -replace '^https?://', ''
+                  # 6. Create VLESS Link
+                  $vlessLink = "vless://d342d11e-d224-445c-b126-23f4fc9128de@$cfHost`:443?encryption=none&security=tls&sni=$cfHost&type=ws&path=%2Fvpn#Xray-Cloudflare"
 
-                  # Create VLESS link
-                  $vlessLink = "vless://d342d11e-d224-445c-b126-23f4fc9128de@$host`:443?encryption=none&security=tls&sni=$host&type=ws&path=%2Fvpn#Xray-Cloudflare"
+                  Write-Host "Generated VLESS Link:"
+                  Write-Host $vlessLink
 
-                  # Telegram message
-                  $msg = "🚀 <b>سرور VPN جدید آماده شد!</b>`n`n🔗 <code>$vlessLink</code>"
+                  # Encode the link for Telegram HTML
+                  $vlessLinkHtml = [System.Net.WebUtility]::HtmlEncode($vlessLink)
 
-                  # Copy button
+                  # 7. Telegram Message
+                  $msg = "🚀 <b>سرور VPN جدید آماده شد!</b>`n`n🔗 <code>$vlessLinkHtml</code>"
+
+                  # 8. Copy Button
                   $replyMarkup = @{
                       inline_keyboard = @(
                           @(
@@ -95,10 +128,9 @@ jobs:
                       )
                   }
 
-                  # Telegram API
+                  # 9. Telegram API
                   $apiUrl = "https://api.telegram.org/bot$($env:TELEGRAM_TOKEN)/sendMessage"
 
-                  # Request body
                   $body = @{
                       chat_id      = $env:TELEGRAM_CHAT_ID
                       text         = $msg
@@ -106,11 +138,14 @@ jobs:
                       reply_markup = $replyMarkup
                   }
 
-                  # Convert entire body to JSON
+                  # Convert complete request to JSON
                   $jsonBody = $body | ConvertTo-Json -Depth 10
 
+                  Write-Host "Sending Telegram notification..."
+
                   try {
-                      Invoke-RestMethod `
+
+                      $response = Invoke-RestMethod `
                         -Uri $apiUrl `
                         -Method Post `
                         -ContentType "application/json" `
@@ -118,17 +153,26 @@ jobs:
                         -ErrorAction Stop
 
                       Write-Host "✅ Notification sent to Telegram successfully!"
+                      Write-Host $response
+
                   }
                   catch {
-                      Write-Host "❌ Failed to send Telegram message: $_"
+
+                      Write-Host "❌ Failed to send Telegram message:"
+                      Write-Host $_
                   }
+              }
+              else {
+                  Write-Host "❌ Telegram credentials are missing."
               }
           }
           else {
-              Write-Host "❌ Failed to extract URL."
-              Get-Content cf.log
+
+              Write-Host "❌ Failed to extract Cloudflare URL."
+              Write-Host "Cloudflare log:"
+              Get-Content "cf.log"
           }
 
-          # 6. KEEP RUNNER ALIVE
+          # 10. KEEP RUNNER ALIVE
           Write-Host "Keeping Runner Alive for 6 hours..."
           Start-Sleep -Seconds 21600
