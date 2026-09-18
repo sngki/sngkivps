@@ -238,20 +238,20 @@ jobs:
                       Write-Host $replyMarkupJson
                   }
                                 }
-                                else {
-                  
-                                    Write-Host "❌ TELEGRAM_TOKEN or TELEGRAM_CHAT_ID is missing."
-                                }
-                            }
-                            else {
-                  
-                                Write-Host "=============================================="
-                                Write-Host "❌ Failed to extract Cloudflare URL."
-                                Write-Host "=============================================="
-                  
-                                Write-Host "Cloudflare log:"
-                                Get-Content "cf.log"
-                            }
+              else {
+  
+                  Write-Host "❌ TELEGRAM_TOKEN or TELEGRAM_CHAT_ID is missing."
+              }
+          }
+          else {
+  
+              Write-Host "=============================================="
+              Write-Host "❌ Failed to extract Cloudflare URL."
+              Write-Host "=============================================="
+  
+              Write-Host "Cloudflare log:"
+              Get-Content "cf.log"
+          }
 
           # ============================================================
           # 7. Keep GitHub Runner alive for 6 hours
