@@ -51,7 +51,12 @@ jobs:
 
           # 4. Start Cloudflare Tunnel
           Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "cloudflared.exe"
-          Start-Process -FilePath ".\cloudflared.exe" -ArgumentList "tunnel --url http://127.0.0.1:8080 --no-tls-verify" -RedirectStandardError "cf.log" -NoNewWindow
+
+          Start-Process `
+            -FilePath ".\cloudflared.exe" `
+            -ArgumentList "tunnel --url http://127.0.0.1:8080 --no-tls-verify" `
+            -RedirectStandardError "cf.log" `
+            -NoNewWindow
 
           Write-Host "Waiting for Cloudflare to generate URL..."
           Start-Sleep -Seconds 15
@@ -66,18 +71,52 @@ jobs:
               Write-Host "Extracted URL: $cfUrl"
 
               if ($env:TELEGRAM_TOKEN -and $env:TELEGRAM_CHAT_ID) {
-                  $msg = "🚀 سرور VPN جدید آماده شد!`n`n📡 Address: $cfUrl`n🔑 Port: 443`n🆔 UUID: d342d11e-d224-445c-b126-23f4fc9128de"
-                  $apiUrl = "https://api.telegram.org/bot$($env:TELEGRAM_TOKEN)/sendMessage"
 
-                  $body = @{
-                      chat_id = $env:TELEGRAM_CHAT_ID
-                      text    = $msg
+                  # Remove both http:// and https:// if they exist
+                  $host = $cfUrl -replace '^https?://', ''
+
+                  # Create VLESS link
+                  $vlessLink = "vless://d342d11e-d224-445c-b126-23f4fc9128de@$host`:443?encryption=none&security=tls&sni=$host&type=ws&path=%2Fvpn#Xray-Cloudflare"
+
+                  # Telegram message
+                  $msg = "🚀 <b>سرور VPN جدید آماده شد!</b>`n`n🔗 <code>$vlessLink</code>"
+
+                  # Copy button
+                  $replyMarkup = @{
+                      inline_keyboard = @(
+                          @(
+                              @{
+                                  text = "📋 کپی لینک"
+                                  copy_text = @{
+                                      text = $vlessLink
+                                  }
+                              }
+                          )
+                      )
                   }
 
-                  $jsonBody = $body | ConvertTo-Json
+                  # Telegram API
+                  $apiUrl = "https://api.telegram.org/bot$($env:TELEGRAM_TOKEN)/sendMessage"
+
+                  # Request body
+                  $body = @{
+                      chat_id      = $env:TELEGRAM_CHAT_ID
+                      text         = $msg
+                      parse_mode   = "HTML"
+                      reply_markup = $replyMarkup
+                  }
+
+                  # Convert entire body to JSON
+                  $jsonBody = $body | ConvertTo-Json -Depth 10
 
                   try {
-                      Invoke-RestMethod -Uri $apiUrl -Method Post -ContentType "application/json" -Body $jsonBody -ErrorAction Stop
+                      Invoke-RestMethod `
+                        -Uri $apiUrl `
+                        -Method Post `
+                        -ContentType "application/json" `
+                        -Body $jsonBody `
+                        -ErrorAction Stop
+
                       Write-Host "✅ Notification sent to Telegram successfully!"
                   }
                   catch {
@@ -90,6 +129,6 @@ jobs:
               Get-Content cf.log
           }
 
-          # 6. KEEP RUNNER ALIVE (Crucial: Must be in the same step)
+          # 6. KEEP RUNNER ALIVE
           Write-Host "Keeping Runner Alive for 6 hours..."
           Start-Sleep -Seconds 21600
