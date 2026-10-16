@@ -15,7 +15,7 @@ jobs:
 
         run: |
           $ErrorActionPreference = "Stop"
-          Set-PSDebug -Trace 1
+          # Set-PSDebug -Trace 1
 
           # ============================================================
           # 1. Download Xray
