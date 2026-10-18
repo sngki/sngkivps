@@ -180,28 +180,21 @@ jobs:
                       "<code>$echLinkHtml</code>",
                       "",
                       "<b>نسخهٔ Fragment + Fingerprint</b>",
-                      "<code>$fragmentLinkHtml</code>"
+                      "<code>$fragmentLinkHtml</code>",
+                      "",
+                      "<i>برای ECH و Fragment، متن لینک را لمس‌و‌نگه‌دارید و کپی کنید.</i>"
                   ) -join "`n"
                   
-                  # سه ردیف دکمهٔ کپی؛ ساخت JSON با ConvertTo-Json امن‌تر از چسباندن رشته است.
+                  # Telegram برای copy_text حداکثر 256 کاراکتر می‌پذیرد. لینک اصلی کوتاه‌تر
+                  # از این حد است، اما ECH و Fragment نیستند؛ آن دو را از متن پیام کپی کنید.
                   $originalButton = [ordered]@{
                       text = "📋 کپی لینک اصلی"
                       copy_text = [ordered]@{ text = $vlessLink }
                   }
-                  $echButton = [ordered]@{
-                      text = "🛡️ کپی ECH"
-                      copy_text = [ordered]@{ text = $echLink }
-                  }
-                  $fragmentButton = [ordered]@{
-                      text = "🧬 کپی Fragment"
-                      copy_text = [ordered]@{ text = $fragmentLink }
-                  }
                   
                   $replyMarkup = [ordered]@{
                       inline_keyboard = @(
-                          @( $originalButton ),
-                          @( $echButton ),
-                          @( $fragmentButton )
+                          @( $originalButton )
                       )
                   }
                   $replyMarkupJson = $replyMarkup | ConvertTo-Json -Compress -Depth 10
