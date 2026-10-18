@@ -170,18 +170,18 @@ jobs:
                   $echLinkHtml = [System.Net.WebUtility]::HtmlEncode($echLink)
                   $fragmentLinkHtml = [System.Net.WebUtility]::HtmlEncode($fragmentLink)
                   
-                  $msg = @"
-                  🚀 <b>سرور جدید آماده شد</b>
-                  
-                  <b>لینک اصلی</b>
-                  <code>$vlessLinkHtml</code>
-                  
-                  <b>نسخهٔ ECH</b>
-                  <code>$echLinkHtml</code>
-                  
-                  <b>نسخهٔ Fragment + Fingerprint</b>
-                  <code>$fragmentLinkHtml</code>
-                  "@
+                  $msg = @(
+                      "🚀 <b>سرور جدید آماده شد</b>",
+                      "",
+                      "<b>لینک اصلی</b>",
+                      "<code>$vlessLinkHtml</code>",
+                      "",
+                      "<b>نسخهٔ ECH</b>",
+                      "<code>$echLinkHtml</code>",
+                      "",
+                      "<b>نسخهٔ Fragment + Fingerprint</b>",
+                      "<code>$fragmentLinkHtml</code>"
+                  ) -join "`n"
                   
                   # سه ردیف دکمهٔ کپی؛ ساخت JSON با ConvertTo-Json امن‌تر از چسباندن رشته است.
                   $originalButton = [ordered]@{
@@ -205,6 +205,7 @@ jobs:
                       )
                   }
                   $replyMarkupJson = $replyMarkup | ConvertTo-Json -Compress -Depth 10
+
 
                   # ============================================================
                   # 9. Telegram API
