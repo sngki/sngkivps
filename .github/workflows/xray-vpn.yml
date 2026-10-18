@@ -192,13 +192,10 @@ jobs:
                       copy_text = [ordered]@{ text = $vlessLink }
                   }
                   
-                  $replyMarkup = [ordered]@{
-                      inline_keyboard = @(
-                          @( $originalButton )
-                      )
-                  }
-                  $replyMarkupJson = $replyMarkup | ConvertTo-Json -Compress -Depth 10
-
+                  # ConvertTo-Json در PowerShell آرایهٔ تک‌عضوی تو‌در‌تو را flatten می‌کند.
+                  # Telegram دقیقاً ساختار [[button]] می‌خواهد، پس پوستهٔ آرایه را صریح می‌سازیم.
+                  $originalButtonJson = $originalButton | ConvertTo-Json -Compress -Depth 10
+                  $replyMarkupJson = '{"inline_keyboard":[[' + $originalButtonJson + ']]}'
 
                   # ============================================================
                   # 9. Telegram API
