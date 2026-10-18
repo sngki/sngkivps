@@ -146,48 +146,66 @@ jobs:
                   # 6. Create VLESS Link
                   # ============================================================
                   
-                  $vlessLink = "vless://d342d11e-d224-445c-b126-23f4fc9128de@$cfHost`:443?encryption=none&security=tls&sni=$cfHost&type=ws&path=%2Fvpn#Xray-Cloudflare"
+                  # این بلوک را در workflow، به‌جای بخش‌های «Create VLESS Link» تا
+                  # «Telegram Reply Markup» قرار دهید. بخش Telegram API که $body را ارسال می‌کند
+                  # بدون تغییر می‌ماند.
                   
-                  Write-Host "Generated VLESS Link:"
-                  Write-Host $vlessLink
+                  # بدنهٔ URL بدون نام/remark؛ پارامترهای جدید باید قبل از # اضافه شوند.
+                  $vlessUrl = "vless://d342d11e-d224-445c-b126-23f4fc9128de@$cfHost`:443?encryption=none&security=tls&sni=$cfHost&type=ws&path=%2Fvpn"
+                  $vlessLink = "$vlessUrl#Xray-Cloudflare"
                   
+                  # نسخهٔ ECH: همان لینک، با TLS fingerprint و منبع ECH اضافه‌شده.
+                  $echFingerprint = "chrome"
+                  $echResolver = "cloudflare-ech.com+udp://1.1.1.1"
+                  $echLink = "$vlessUrl&fp=$echFingerprint&ech=$([uri]::EscapeDataString($echResolver))#Xray-Cloudflare-ECH"
                   
-                  # ============================================================
-                  # 7. Telegram Message
-                  # ============================================================
+                  # نسخهٔ Fragment + Fingerprint: مقادیر v2 همان preset پیش‌فرض Proxy Builder هستند.
+                  $fragmentFingerprint = "unsafe"
+                  $cipherSuites = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256"
+                  $fragmentMask = '{"tcp":[{"type":"fragment","settings":{"packets":"tlshello","lengths":["0","104","1"],"delays":["0"],"maxSplit":"0"}},{"type":"fragment","settings":{"packets":"1-1","lengths":["114","1"],"delays":["1"],"maxSplit":"11"}}]}'
+                  $fragmentLink = "$vlessUrl&fp=$fragmentFingerprint&cs=$([uri]::EscapeDataString($cipherSuites))&fm=$([uri]::EscapeDataString($fragmentMask))#Xray-Cloudflare-Fragment"
                   
+                  # برای متن HTML تلگرام، کاراکترهای URL را escape می‌کنیم.
                   $vlessLinkHtml = [System.Net.WebUtility]::HtmlEncode($vlessLink)
+                  $echLinkHtml = [System.Net.WebUtility]::HtmlEncode($echLink)
+                  $fragmentLinkHtml = [System.Net.WebUtility]::HtmlEncode($fragmentLink)
                   
-                  $msg = "🚀 <b>سرور VPN جدید آماده شد!</b>`n`n🔗 <code>$vlessLinkHtml</code>"
+                  $msg = @"
+                  🚀 <b>سرور جدید آماده شد</b>
                   
+                  <b>لینک اصلی</b>
+                  <code>$vlessLinkHtml</code>
                   
-                  # ============================================================
-                  # 8. Create Copy Button
-                  # ============================================================
+                  <b>نسخهٔ ECH</b>
+                  <code>$echLinkHtml</code>
                   
-                  $copyButton = [ordered]@{
-                      text = "📋 کپی لینک"
-                      copy_text = [ordered]@{
-                          text = $vlessLink
-                      }
+                  <b>نسخهٔ Fragment + Fingerprint</b>
+                  <code>$fragmentLinkHtml</code>
+                  "@
+                  
+                  # سه ردیف دکمهٔ کپی؛ ساخت JSON با ConvertTo-Json امن‌تر از چسباندن رشته است.
+                  $originalButton = [ordered]@{
+                      text = "📋 کپی لینک اصلی"
+                      copy_text = [ordered]@{ text = $vlessLink }
+                  }
+                  $echButton = [ordered]@{
+                      text = "🛡️ کپی ECH"
+                      copy_text = [ordered]@{ text = $echLink }
+                  }
+                  $fragmentButton = [ordered]@{
+                      text = "🧬 کپی Fragment"
+                      copy_text = [ordered]@{ text = $fragmentLink }
                   }
                   
-                  # Convert ONLY the button to JSON
-                  $copyButtonJson = $copyButton | ConvertTo-Json -Compress -Depth 10
-                  
-                  # IMPORTANT:
-                  # Telegram requires:
-                  # inline_keyboard -> array of rows -> array of buttons
-                  #
-                  # Therefore we explicitly create:
-                  # [[ BUTTON ]]
-                  #
-                  $replyMarkupJson = '{"inline_keyboard":[[' + $copyButtonJson + ']]}'
-                  
-                  Write-Host "Telegram Reply Markup:"
-                  Write-Host $replyMarkupJson
-                  
-                  
+                  $replyMarkup = [ordered]@{
+                      inline_keyboard = @(
+                          @( $originalButton ),
+                          @( $echButton ),
+                          @( $fragmentButton )
+                      )
+                  }
+                  $replyMarkupJson = $replyMarkup | ConvertTo-Json -Compress -Depth 10
+
                   # ============================================================
                   # 9. Telegram API
                   # ============================================================
